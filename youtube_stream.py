@@ -8,7 +8,11 @@ import threading
 from typing import Tuple, Generator, Callable, Optional
 import yt_dlp
 import numpy as np
-from services.frame_extractor import VideoMetadata
+try:
+    from services.frame_extractor import VideoMetadata
+except ModuleNotFoundError:
+    from frame_extractor import VideoMetadata
+
 
 logger = logging.getLogger("youtube_stream")
 if not logger.handlers:
