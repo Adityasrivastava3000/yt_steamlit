@@ -46,7 +46,7 @@ class YouTubeStreamResolver:
     @staticmethod
     def extract_video_id(url: str) -> str:
         """Extracts the YouTube 11-character video ID from a URL."""
-        match = re.search(r"(?:v=|\/v\/|embed\/|youtu\.be\/|\/shorts\/|^)([a-zA-Z0-9_-]{11})", url)
+        match = re.search(r"(?:v=|\/v\/|embed\/|youtu\.be\/|\/shorts\/|\/live\/|^)([a-zA-Z0-9_-]{11})", url)
         return match.group(1) if match else "unknown"
 
     @staticmethod
@@ -94,7 +94,7 @@ class YouTubeStreamResolver:
 
             for client_cfg in player_clients:
                 ydl_opts = {
-                    'format': 'best[height<=480][ext=mp4]/bestvideo[height<=480]+bestaudio/best[ext=mp4]/best',
+                    'format': 'best[height<=480]/best[height<=720]/best',
                     'quiet': True,
                     'no_warnings': True,
                     'noplaylist': True,
@@ -241,7 +241,7 @@ class YouTubeStreamResolver:
                 '--ignore-config',
                 '--no-warnings',
                 '--extractor-args', f"youtube:player_client={client_arg}",
-                '-f', 'best[height<=480][ext=mp4]/bestvideo[height<=480]+bestaudio/best',
+                '-f', 'best[height<=480]/best[height<=720]/best',
                 '-q', '-o', '-'
             ]
             if used_cookies and cookie_file and os.path.exists(cookie_file):
@@ -251,6 +251,7 @@ class YouTubeStreamResolver:
             ffmpeg_cmd = [
                 'ffmpeg', '-y', '-loglevel', 'error',
                 '-i', 'pipe:0',
+                '-vf', f"fps=1/{extraction_interval}",
                 '-s', f"{width}x{height}",
                 '-f', 'image2pipe',
                 '-pix_fmt', 'bgr24',
@@ -274,6 +275,7 @@ class YouTubeStreamResolver:
                 '-y',
                 '-loglevel', 'error',
                 '-i', stream_url,
+                '-vf', f"fps=1/{extraction_interval}",
                 '-s', f"{width}x{height}",
                 '-f', 'image2pipe',
                 '-pix_fmt', 'bgr24',
@@ -290,17 +292,9 @@ class YouTubeStreamResolver:
                     break
                     
                 frame = np.frombuffer(raw_frame, dtype=np.uint8).reshape((height, width, 3))
-                fps_val = fps if (fps is not None and fps > 0) else 30.0
-                timestamp_seconds = frame_idx / fps_val
+                timestamp_seconds = frame_idx * extraction_interval
                 yield frame_idx, timestamp_seconds, frame
-                
-                if frame_step > 1:
-                    skip_bytes = (frame_step - 1) * frame_size
-                    discarded = process.stdout.read(skip_bytes)
-                    if len(discarded) < skip_bytes:
-                        break
-                        
-                frame_idx += frame_step
+                frame_idx += 1
         except Exception as e:
             logger.error(f"Error reading frames from FFmpeg pipe: {e}", exc_info=True)
             raise ValueError(f"FFmpeg stream pipe error: {e}") from e
