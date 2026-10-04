@@ -11,14 +11,25 @@ import streamlit as st
 # Append current directory so services subfolder is importable
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from services.frame_extractor import FrameExtractor, VideoMetadata
-from services.slide_detector import SlideDetector
-from services.change_classifier import ChangeClassifier
-from services.ocr_service import OCRService
-from services.ppt_generator import PPTGenerator
-from services.pdf_generator import PDFGenerator
-from services.youtube_stream import YouTubeStreamResolver
-from services.parallel_preprocessor import ParallelFramePreprocessor
+try:
+    from services.frame_extractor import FrameExtractor, VideoMetadata
+    from services.slide_detector import SlideDetector
+    from services.change_classifier import ChangeClassifier
+    from services.ocr_service import OCRService
+    from services.ppt_generator import PPTGenerator
+    from services.pdf_generator import PDFGenerator
+    from services.youtube_stream import YouTubeStreamResolver
+    from services.parallel_preprocessor import ParallelFramePreprocessor
+except ModuleNotFoundError:
+    from frame_extractor import FrameExtractor, VideoMetadata
+    from slide_detector import SlideDetector
+    from change_classifier import ChangeClassifier
+    from ocr_service import OCRService
+    from ppt_generator import PPTGenerator
+    from pdf_generator import PDFGenerator
+    from youtube_stream import YouTubeStreamResolver
+    from parallel_preprocessor import ParallelFramePreprocessor
+
 
 logger = logging.getLogger("streamlit_prototype")
 
