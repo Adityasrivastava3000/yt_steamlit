@@ -214,76 +214,37 @@ class YouTubeStreamResolver:
         used_client: str = "android"
     ) -> Generator[Tuple[int, float, np.ndarray], None, None]:
         """
-        Decodes video stream using FFmpeg. If original_url is provided, pipes yt-dlp output to FFmpeg
-        to ensure robust handling of YouTube chunking, cookies, and signatures.
+        Decodes video stream directly using FFmpeg with HTTP reconnect support.
         """
-        logger.info(f"Initializing FFmpeg stream processor for {original_url or stream_url}")
+        logger.info(f"Initializing FFmpeg stream processor for stream URL: {stream_url[:60]}...")
         
         try:
             subprocess.run(["ffmpeg", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
         except Exception as e:
             raise RuntimeError("FFmpeg is not installed or not found in system PATH. Streaming mode requires FFmpeg.") from e
 
-        if fps is None or fps <= 0:
-            fps = 30.0
         if extraction_interval is None or extraction_interval <= 0:
             extraction_interval = 2.0
 
-        frame_step = max(1, int(round(fps * extraction_interval)))
         frame_size = width * height * 3
-        
-        cookie_file = os.environ.get("YOUTUBE_COOKIES_FILE")
-        
-        if original_url and YouTubeStreamResolver.is_youtube_url(original_url):
-            client_arg = "android,mweb,default"
-            ydl_cmd = [
-                'python3', '-m', 'yt_dlp',
-                '--ignore-config',
-                '--no-warnings',
-                '--extractor-args', f"youtube:player_client={client_arg}",
-                '-f', 'best[height<=480]/best[height<=720]/best',
-                '-q', '-o', '-'
-            ]
-            if used_cookies and cookie_file and os.path.exists(cookie_file):
-                ydl_cmd.extend(['--cookies', cookie_file])
-            ydl_cmd.append(original_url)
-            
-            ffmpeg_cmd = [
-                'ffmpeg', '-y', '-loglevel', 'error',
-                '-i', 'pipe:0',
-                '-vf', f"fps=1/{extraction_interval}",
-                '-s', f"{width}x{height}",
-                '-f', 'image2pipe',
-                '-pix_fmt', 'bgr24',
-                '-vcodec', 'rawvideo',
-                '-'
-            ]
-            
-            p1 = subprocess.Popen(ydl_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            process = subprocess.Popen(ffmpeg_cmd, stdin=p1.stdout, stdout=subprocess.PIPE, bufsize=10**8)
-            p1.stdout.close()
-            
-            def log_yt_dlp_stderr(pipe):
-                for line in iter(pipe.readline, b''):
-                    msg = line.decode('utf-8', errors='ignore').strip()
-                    if msg:
-                        logger.warning(f"yt-dlp stream pipe stderr: {msg}")
-            threading.Thread(target=log_yt_dlp_stderr, args=(p1.stderr,), daemon=True).start()
-        else:
-            cmd = [
-                'ffmpeg',
-                '-y',
-                '-loglevel', 'error',
-                '-i', stream_url,
-                '-vf', f"fps=1/{extraction_interval}",
-                '-s', f"{width}x{height}",
-                '-f', 'image2pipe',
-                '-pix_fmt', 'bgr24',
-                '-vcodec', 'rawvideo',
-                '-'
-            ]
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=10**8)
-        
+
+        cmd = [
+            'ffmpeg',
+            '-y',
+            '-loglevel', 'error',
+            '-reconnect', '1',
+            '-reconnect_streamed', '1',
+            '-reconnect_delay_max', '5',
+            '-i', stream_url,
+            '-vf', f"fps=1/{extraction_interval}",
+            '-s', f"{width}x{height}",
+            '-f', 'image2pipe',
+            '-pix_fmt', 'bgr24',
+            '-vcodec', 'rawvideo',
+            '-'
+        ]
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=10**8)
+
         frame_idx = 0
         try:
             while True:
@@ -296,8 +257,14 @@ class YouTubeStreamResolver:
                 yield frame_idx, timestamp_seconds, frame
                 frame_idx += 1
         except Exception as e:
-            logger.error(f"Error reading frames from FFmpeg pipe: {e}", exc_info=True)
-            raise ValueError(f"FFmpeg stream pipe error: {e}") from e
+            logger.error(f"Error reading frames from FFmpeg stream: {e}", exc_info=True)
+            raise ValueError(f"FFmpeg stream error: {e}") from e
+        finally:
+            if process.stdout:
+                process.stdout.close()
+            process.terminate()
+            process.wait()
+            logger.info("FFmpeg stream processor terminated.")
         finally:
             process.stdout.close()
             process.terminate()
