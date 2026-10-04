@@ -265,11 +265,6 @@ class YouTubeStreamResolver:
             process.terminate()
             process.wait()
             logger.info("FFmpeg stream processor terminated.")
-        finally:
-            process.stdout.close()
-            process.terminate()
-            process.wait()
-            logger.info("FFmpeg stream processor terminated.")
 
     @staticmethod
     def process_youtube_video(youtube_url: str, interval: Optional[float] = None) -> Tuple[VideoMetadata, Generator[Tuple[int, float, np.ndarray], None, None], Callable[[], None]]:
