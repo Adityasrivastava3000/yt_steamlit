@@ -133,6 +133,9 @@ if st.button("🚀 Start Extraction", type="primary", use_container_width=True):
     elif not YouTubeStreamResolver.is_youtube_url(youtube_url):
         st.warning("Please enter a valid YouTube address (youtube.com or youtu.be).")
     else:
+        # Clear old output files from previous runs so cached 0-slide results are removed
+        if os.path.exists(OUTPUT_DIR):
+            shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
         st.session_state.processing = True
         st.session_state.processed = False
         st.session_state.youtube_url = youtube_url
