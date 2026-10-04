@@ -66,13 +66,13 @@ class YouTubeStreamResolver:
         # Order of attempts: with cookies first (if exists), then without cookies
         cookie_strategies = [True, False] if has_cookie_file else [False]
 
-        # Player client configurations to try in sequence
+        # Player client configurations to try in sequence (android/mweb first for datacenter IPs)
         player_clients = [
-            ['default'],
             ['android'],
             ['mweb'],
+            ['ios'],
             ['tv_embedded'],
-            ['web_creator']
+            ['default']
         ]
 
         last_error = None
