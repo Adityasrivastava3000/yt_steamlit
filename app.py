@@ -81,8 +81,14 @@ def format_seconds(seconds: float) -> str:
 
 
 def check_existing_outputs():
-    required_files = [METADATA_PATH, OCR_RESULTS_PATH, PPTX_PATH]
-    return all(os.path.exists(f) for f in required_files)
+    if os.path.exists(METADATA_PATH):
+        try:
+            with open(METADATA_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return isinstance(data, list) and len(data) > 0
+        except Exception:
+            return False
+    return False
 
 
 if "processed" not in st.session_state:
@@ -328,21 +334,25 @@ if st.session_state.processing:
             
         # Step 2: OCR & PPT Generation
         status_slot.markdown(render_status(2), unsafe_allow_html=True)
-        ocr_service.process_slides_parallel(
-            slides_dir=SLIDES_DIR,
-            metadata_path=METADATA_PATH,
-            output_results_path=OCR_RESULTS_PATH,
-            output_summary_path=OCR_SUMMARY_PATH
-        )
-        
-        ppt_gen = PPTGenerator(output_dir=OUTPUT_DIR)
-        ppt_gen.generate()
+        try:
+            ocr_service.process_slides_parallel(
+                slides_dir=SLIDES_DIR,
+                metadata_path=METADATA_PATH,
+                output_results_path=OCR_RESULTS_PATH,
+                output_summary_path=OCR_SUMMARY_PATH
+            )
+            
+            ppt_gen = PPTGenerator(output_dir=OUTPUT_DIR)
+            ppt_gen.generate()
+        except Exception as ocr_err:
+            logger.warning(f"OCR/PPT generation warning: {ocr_err}")
         
         # Step 3: PDF Export
         status_slot.markdown(render_status(3), unsafe_allow_html=True)
         try:
-            pdf_gen = PDFGenerator(output_dir=OUTPUT_DIR)
-            pdf_gen.convert(PPTX_PATH, PDF_PATH)
+            if os.path.exists(PPTX_PATH):
+                pdf_gen = PDFGenerator(output_dir=OUTPUT_DIR)
+                pdf_gen.convert(PPTX_PATH, PDF_PATH)
         except Exception as pdf_err:
             logger.warning(f"PDF export warning: {pdf_err}")
             
