@@ -335,10 +335,10 @@ class SlideDetector:
                 )
                 return False
             
-        # 2. General camera-only/blank scene check (low edge density overall)
+        # 2. General camera-only/blank scene check (low edge density overall and no educational content)
         overall_density = self.compute_edge_density(gray)
-        if overall_density < 0.005:
-            logger.info(f"Filtered low-density camera/blank scene: density={overall_density:.4f}")
+        if overall_density < 0.0002 and edu_score < 1.0:
+            logger.info(f"Filtered low-density camera/blank scene: density={overall_density:.4f}, edu_score={edu_score:.1f}")
             return True
 
         return False
