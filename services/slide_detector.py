@@ -39,9 +39,22 @@ class SlideDetector:
         self.w_edge = w_edge
         self.edge_threshold = edge_threshold
 
-        # Initialize Haar Cascade face detectors (frontal and profile)
-        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        self.profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
+        # Initialize Haar Cascade face detectors safely (frontal and profile)
+        try:
+            if hasattr(cv2, 'CascadeClassifier') and hasattr(cv2, 'data') and hasattr(cv2.data, 'haarcascades'):
+                self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+                self.profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
+                if self.face_cascade.empty():
+                    self.face_cascade = None
+                if self.profile_cascade.empty():
+                    self.profile_cascade = None
+            else:
+                self.face_cascade = None
+                self.profile_cascade = None
+        except Exception as e:
+            logger.warning(f"Could not load cv2 CascadeClassifier: {e}")
+            self.face_cascade = None
+            self.profile_cascade = None
 
         # Temporal face tracking state
         self.last_face_boxes = []
@@ -81,6 +94,9 @@ class SlideDetector:
 
     def detect_faces(self, frame: np.ndarray) -> List[Tuple[int, int, int, int]]:
         """Detects frontal and profile faces in the frame. Returns bounding boxes as [(x, y, w, h)]."""
+        if self.face_cascade is None:
+            return []
+
         orig_height, orig_width = frame.shape[:2]
         
         # Downscale for faster face detection
@@ -105,7 +121,7 @@ class SlideDetector:
             scaleFactor=1.1,
             minNeighbors=4,
             minSize=(min_size, min_size)
-        )
+        ) if self.profile_cascade else []
         
         all_faces_small = list(faces)
         for pf in profile_faces:

@@ -33,7 +33,10 @@ class OCRService:
 
         if self.engine == "paddleocr":
             ocr_logger.info("Configured to use PaddleOCR engine.")
-            from services.paddle_ocr_service import PaddleOCRService
+            try:
+                from services.paddle_ocr_service import PaddleOCRService
+            except ModuleNotFoundError:
+                from paddle_ocr_service import PaddleOCRService
             self.paddle_service = PaddleOCRService(self.languages)
             self.reader = None
         else:

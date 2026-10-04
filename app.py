@@ -30,7 +30,6 @@ except ModuleNotFoundError:
     from youtube_stream import YouTubeStreamResolver
     from parallel_preprocessor import ParallelFramePreprocessor
 
-
 logger = logging.getLogger("streamlit_prototype")
 
 # Define standalone output paths

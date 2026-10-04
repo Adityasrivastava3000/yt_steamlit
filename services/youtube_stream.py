@@ -13,7 +13,6 @@ try:
 except ModuleNotFoundError:
     from frame_extractor import VideoMetadata
 
-
 logger = logging.getLogger("youtube_stream")
 if not logger.handlers:
     logger.setLevel(logging.INFO)
