@@ -82,10 +82,16 @@ class ParallelFramePreprocessor:
             }
         except Exception as e:
             logger.error(f"Error preprocessing frame {frame_idx}: {e}", exc_info=True)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame is not None else np.zeros((360, 640), dtype=np.uint8)
             return {
                 "frame_idx": frame_idx,
                 "timestamp_seconds": timestamp_seconds,
                 "frame": frame,
+                "gray": gray,
+                "face_boxes": [],
+                "is_presenter": False,
+                "dhash": imagehash.dhash(Image.fromarray(gray)),
+                "edge_mask": np.zeros_like(gray),
                 "error": e
             }
 
