@@ -267,26 +267,44 @@ class YouTubeStreamResolver:
             logger.info("FFmpeg stream processor terminated.")
 
     @staticmethod
-    def process_youtube_video(youtube_url: str, interval: Optional[float] = None) -> Tuple[VideoMetadata, Generator[Tuple[int, float, np.ndarray], None, None], Callable[[], None]]:
+    def download_and_extract_frames(
+        youtube_url: str,
+        interval: Optional[float] = None
+    ) -> Tuple[VideoMetadata, Generator[Tuple[int, float, np.ndarray], None, None], Callable[[], None]]:
         """
-        Orchestrates YouTube processing: extracts metadata with fallback strategies and streams video via FFmpeg.
+        Downloads low-res mp4 to tempdir via yt-dlp and yields frames via OpenCV VideoCapture.
+        Bulletproof strategy for cloud hosts (Streamlit Cloud, Colab, etc).
         """
-        meta_dict = YouTubeStreamResolver.get_video_metadata(youtube_url)
-        duration = meta_dict['duration']
-        stream_url = meta_dict['stream_url']
-        width = meta_dict['width']
-        height = meta_dict['height']
-        fps = meta_dict['fps']
-        title = meta_dict.get('title', 'YouTube Video')
-        used_cookies = meta_dict.get('used_cookies', True)
-        used_client = meta_dict.get('used_client', 'android')
+        temp_dir = tempfile.mkdtemp(prefix="yt_lecture_")
+        video_path = os.path.join(temp_dir, "lecture.mp4")
         
-        if duration is None:
-            duration = 0.0
-        if fps is None or fps <= 0:
-            fps = 30.0
+        cookie_file = os.environ.get("YOUTUBE_COOKIES_FILE")
+        
+        ydl_opts = {
+            'format': 'best[height<=360]/bestvideo[height<=360]+bestaudio/best',
+            'outtmpl': video_path,
+            'quiet': True,
+            'no_warnings': True,
+            'extractor_args': {
+                'youtube': {'player_client': ['android', 'mweb', 'ios', 'default']}
+            }
+        }
+        if cookie_file and os.path.exists(cookie_file):
+            ydl_opts['cookiefile'] = cookie_file
 
-        if interval is None:
+        logger.info(f"Downloading YouTube video to {video_path}...")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(youtube_url, download=True)
+            title = info.get('title', 'YouTube Video')
+            duration = info.get('duration', 0.0) or 0.0
+            fps = info.get('fps', 30.0) or 30.0
+
+        cap = cv2.VideoCapture(video_path)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 360
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or int(duration * fps)
+
+        if interval is None or interval <= 0:
             if duration <= 600:
                 interval = 2.0
             elif duration <= 1800:
@@ -295,42 +313,110 @@ class YouTubeStreamResolver:
                 interval = 4.0
             else:
                 interval = 5.0
-            logger.info(f"Adaptive YouTube frame sampling configured interval: {interval}s based on duration {duration:.1f}s")
 
-        if interval is None or interval <= 0:
-            interval = 2.0
-
-        duration_val = duration if duration is not None else 0.0
-        fps_val = fps if (fps is not None and fps > 0) else 30.0
-        interval_val = interval if (interval is not None and interval > 0) else 2.0
-        total_frames = int(duration_val * fps_val)
-        candidate_count = max(1, int(duration_val / interval_val))
-        estimated_processing_time = candidate_count / 10.0
-        
         metadata = VideoMetadata(
-            video_path=youtube_url,
+            video_path=video_path,
             duration_seconds=duration,
             width=width,
             height=height,
             fps=fps,
             total_frames=total_frames,
-            estimated_processing_time_seconds=estimated_processing_time,
+            estimated_processing_time_seconds=duration / 20.0,
             title=title
         )
-        
-        frame_gen = YouTubeStreamResolver.ffmpeg_stream_processor(
-            stream_url=stream_url,
-            width=width,
-            height=height,
-            fps=fps,
-            extraction_interval=interval,
-            original_url=youtube_url,
-            used_cookies=used_cookies,
-            used_client=used_client
-        )
-        
-        cleanup_fn = lambda: None
-        return metadata, frame_gen, cleanup_fn
+
+        def frame_generator():
+            try:
+                frame_step = max(1, int(round(fps * interval)))
+                frame_idx = 0
+                while cap.isOpened():
+                    ret, frame = cap.read()
+                    if not ret or frame is None:
+                        break
+                    timestamp_seconds = frame_idx / fps
+                    yield frame_idx, timestamp_seconds, frame
+                    
+                    if frame_step > 1:
+                        for _ in range(frame_step - 1):
+                            if not cap.grab():
+                                break
+                        frame_idx += frame_step
+                    else:
+                        frame_idx += 1
+            finally:
+                cap.release()
+
+        def cleanup_fn():
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+        return metadata, frame_generator(), cleanup_fn
+
+    @staticmethod
+    def process_youtube_video(youtube_url: str, interval: Optional[float] = None) -> Tuple[VideoMetadata, Generator[Tuple[int, float, np.ndarray], None, None], Callable[[], None]]:
+        """
+        Orchestrates YouTube processing: downloads low-res video for zero-failure frame extraction.
+        """
+        try:
+            return YouTubeStreamResolver.download_and_extract_frames(youtube_url, interval)
+        except Exception as e:
+            logger.warning(f"Download & extract failed, falling back to stream resolver: {e}")
+            meta_dict = YouTubeStreamResolver.get_video_metadata(youtube_url)
+            duration = meta_dict['duration']
+            stream_url = meta_dict['stream_url']
+            width = meta_dict['width']
+            height = meta_dict['height']
+            fps = meta_dict['fps']
+            title = meta_dict.get('title', 'YouTube Video')
+            used_cookies = meta_dict.get('used_cookies', True)
+            used_client = meta_dict.get('used_client', 'android')
+            
+            if duration is None:
+                duration = 0.0
+            if fps is None or fps <= 0:
+                fps = 30.0
+
+            if interval is None or interval <= 0:
+                if duration <= 600:
+                    interval = 2.0
+                elif duration <= 1800:
+                    interval = 3.0
+                elif duration <= 3600:
+                    interval = 4.0
+                else:
+                    interval = 5.0
+
+            duration_val = duration if duration is not None else 0.0
+            fps_val = fps if (fps is not None and fps > 0) else 30.0
+            interval_val = interval if (interval is not None and interval > 0) else 2.0
+            total_frames = int(duration_val * fps_val)
+            candidate_count = max(1, int(duration_val / interval_val))
+            estimated_processing_time = candidate_count / 10.0
+            
+            metadata = VideoMetadata(
+                video_path=youtube_url,
+                duration_seconds=duration,
+                width=width,
+                height=height,
+                fps=fps,
+                total_frames=total_frames,
+                estimated_processing_time_seconds=estimated_processing_time,
+                title=title
+            )
+            
+            frame_gen = YouTubeStreamResolver.ffmpeg_stream_processor(
+                stream_url=stream_url,
+                width=width,
+                height=height,
+                fps=fps,
+                extraction_interval=interval,
+                original_url=youtube_url,
+                used_cookies=used_cookies,
+                used_client=used_client
+            )
+            
+            cleanup_fn = lambda: None
+            return metadata, frame_gen, cleanup_fn
         
         cleanup_fn = lambda: None
         return metadata, frame_gen, cleanup_fn
